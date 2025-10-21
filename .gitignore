@@ -1,0 +1,14 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual env
+venv/
+
+# Env file (confidential)
+.env
+
+# IDE config
+.idea/
+
+
