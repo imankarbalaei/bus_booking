@@ -16,7 +16,17 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 
 from app.core.config import settings
 from app.db.database import Base
-from app.models.user_model import User
+from app.models import (
+    user_model,
+    operator_model,
+    bus_model,
+    trip_model,
+    booking_model,
+    wallet_model,
+    transaction_model,
+    route_model,
+    city_model,
+)
 
 target_metadata = Base.metadata
 

@@ -6,3 +6,4 @@ from app.models.trip_model import Trip
 from app.models.booking_model import Booking
 from app.models.wallet_model import Wallet
 from app.models.transaction_model import Transaction
+from app.models.operator_model import Operator
