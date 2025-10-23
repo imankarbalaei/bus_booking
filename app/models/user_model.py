@@ -14,8 +14,7 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    buses = relationship("Bus", back_populates="operator")
     wallet = relationship("Wallet", back_populates="user", uselist=False, cascade="all, delete-orphan")
     transactions = relationship("Transaction", back_populates="user", cascade="all, delete-orphan")
     bookings = relationship("Booking", back_populates="user", cascade="all, delete-orphan")
-    operator = relationship("Operator", back_populates="user", uselist=False) 
+    operator = relationship("Operator", back_populates="user", uselist=False)

@@ -15,3 +15,5 @@ class City(Base):
     id = Column(Integer, primary_key=True, index=True)
     city_name = Column(String, nullable=False)
     province_id = Column(Integer, ForeignKey("provinces.id"))
+
+    province = relationship("Province", back_populates="cities")
