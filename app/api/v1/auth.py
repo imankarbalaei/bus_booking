@@ -17,6 +17,9 @@ async def register(user_in: UserCreate):
         email=user_in.email,
         hashed_password=hash_password(user_in.password)
     )
+
+
+
     access_token = create_access_token({"user_id": user.id, "is_admin": user.is_admin})
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -29,3 +32,4 @@ async def login(user_in: UserLogin):
 
     access_token = create_access_token({"user_id": user.id, "is_admin": user.is_admin})
     return {"access_token": access_token, "token_type": "bearer"}
+

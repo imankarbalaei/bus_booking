@@ -1,4 +1,6 @@
 from sqlalchemy import select
+
+from app.models import Wallet
 from app.models.user_model import User
 from app.db.database import async_session
 
@@ -18,4 +20,10 @@ async def create_user(full_name: str, phone_number: str, email: str, hashed_pass
             )
             session.add(user)
             await session.flush()
+
+            wallet = Wallet(
+                user_id=user.id,
+                price=0
+            )
+            session.add(wallet)
             return user

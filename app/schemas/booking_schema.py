@@ -1,28 +1,32 @@
 from pydantic import BaseModel
 from enum import Enum
-from typing import Optional
-from datetime import datetime
 
-class BookingStatus(str, Enum):
-    booked = "booked"
-    canceled = "canceled"
 
-class PaymentStatus(str, Enum):
-    pending = "pending"
-    paid = "paid"
-    refunded = "refunded"
+class PaymentMethod(str, Enum):
+    wallet = "wallet"
+    gateway = "gateway"
 
 class BookingCreate(BaseModel):
     trip_id: int
+    payment_method: PaymentMethod
 
 class BookingResponse(BaseModel):
     id: int
-    user_id: int
     trip_id: int
-    status: BookingStatus
-    payment_status: PaymentStatus
-    booking_time: datetime
+    user_id: int
+    status: str
+    payment_status: str
+    amount: int
 
     model_config = {
         "from_attributes": True
     }
+
+class BookingCancelResponse(BaseModel):
+    id: int
+    trip_id: int
+    status: str
+    payment_status: str
+    refund_amount: int
+
+    model_config = {"from_attributes": True}
