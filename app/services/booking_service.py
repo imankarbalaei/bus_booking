@@ -1,118 +1,144 @@
-# app/services/booking_service.py
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
-from datetime import datetime
-from sqlalchemy.orm import selectinload
-
-from app.models.booking_model import BookingStatus, PaymentStatus
-from app.models.trip_model import Trip
-from app.models.wallet_model import Wallet
-from app.crud.booking_crud import BookingCRUD
-from app.schemas.booking_schema import PaymentMethod
-
+from typing import List
+from app.repositories.booking_repo import BookingRepo
+from app.db.database import get_pool,pool
+from app.db.database import fetch,fetchrow,execute
 
 class BookingService:
-    @staticmethod
-    async def reserve_seat(session: AsyncSession, user, trip_id: int, payment_method: PaymentMethod):
-        # تمام عملیات داخل یک transaction امن
-        async with session.begin():
-            # 1️⃣ دریافت سفر و lock کردن row برای جلوگیری از overbooking
-            result = await session.execute(
-                select(Trip)
-                .options(selectinload(Trip.bus))  # اضافه شد
-                .where(Trip.id == trip_id)
-                .with_for_update()
-            )
-            trip = result.scalar_one_or_none()
-            if not trip:
-                raise HTTPException(status_code=404, detail="Trip not found")
-
-            # 2️⃣ بررسی ظرفیت
-            bookings = await BookingCRUD.get_bookings_by_trip(session, trip_id)
-            if len(bookings) >= trip.bus.capacity:
-                raise HTTPException(status_code=400, detail="No available seats")
-
-            # 3️⃣ محدودیت روزانه کاربر
-            today = datetime.utcnow().date()
-            count = await BookingCRUD.get_user_bookings_count(session, user.id, today)
-            if count >= 20:
-                raise HTTPException(status_code=400, detail="Daily booking limit reached")
-
-            amount = trip.price
-
-            # 4️⃣ پرداخت با Wallet
-            if payment_method == PaymentMethod.wallet:
-                wallet = await session.get(Wallet, user.id)
-                if not wallet or wallet.price < amount:
-                    raise HTTPException(status_code=400, detail="Insufficient wallet balance")
-
-                wallet.price -= amount
-
-                booking = await BookingCRUD.create_booking(session, user.id, trip_id, amount)
-                transaction = await BookingCRUD.create_transaction(
-                    session, user.id, booking.id, amount, PaymentMethod.wallet, wallet_id=wallet.id,wallet_balance_after=wallet.price
-                )
-                transaction.wallet_balance_after = wallet.price
-                return booking
-
-            # 5️⃣ پرداخت با Gateway
-            elif payment_method == PaymentMethod.gateway:
-                booking = await BookingCRUD.create_booking(session, user.id, trip_id, amount)
-                transaction = await BookingCRUD.create_transaction(
-                    session, user.id, booking.id, amount, PaymentMethod.gateway,
-                )
-                # TODO: اتصال به درگاه پرداخت
-                return booking
+    MAX_DAILY = 20
 
     @staticmethod
-    async def cancel_booking(session:AsyncSession, user, booking_id: int):
-        async with session.begin():
-            booking = await BookingCRUD.get_booking_by_id(session, booking_id)
-            if not booking:
-                raise HTTPException(status_code=404, detail="Booking not found")
+    async def book_seats(user_id: int, trip_id: int, seat_numbers: List[int], pay_with_wallet: bool = True):
 
-            # فقط صاحب رزرو حق لغو دارد
-            if booking.user_id != user.id:
-                raise HTTPException(status_code=403, detail="You are not allowed to cancel this booking")
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            tr = conn.transaction()
+            await tr.start()
 
-            # فقط رزرو فعال و پرداخت شده قابل لغو است
-            if booking.status != BookingStatus.booked or booking.payment_status != PaymentStatus.paid:
-                raise HTTPException(status_code=400, detail="Booking cannot be canceled")
+            try:
 
-            # کیف پول کاربر
-            wallet = await session.execute(
-                select(Wallet).where(Wallet.user_id == user.id).with_for_update()
-            )
-            wallet = wallet.scalar_one_or_none()
-            if not wallet:
-                raise HTTPException(status_code=404, detail="Wallet not found")
-
-            # بازگشت مبلغ
-            refund_amount = booking.trip.price
-            wallet.price += refund_amount
-
-            # بروزرسانی وضعیت رزرو
-            await BookingCRUD.cancel_booking(session, booking)
-
-            # ثبت تراکنش برگشتی
-            transaction = await BookingCRUD.create_refund_transaction(
-                session,
-                user.id,
-                booking.id,
-                refund_amount,
-                wallet_id=wallet.id
-            )
-            transaction.wallet_balance_after = wallet.price
-
-            return {
-                "id": booking.id,
-                "trip_id": booking.trip_id,
-                "status": booking.status.value,
-                "payment_status": booking.payment_status.value,
-                "refund_amount": refund_amount
-            }
+                daily_count = await BookingRepo.get_user_daily_bookings_count(user_id)
+                if daily_count + len(seat_numbers) > BookingService.MAX_DAILY:
+                    raise HTTPException(status_code=429, detail=f"Daily booking limit {BookingService.MAX_DAILY} exceeded")
 
 
+                trip_row = await fetchrow(
+                    "SELECT price FROM trips WHERE id=$1 FOR UPDATE",
+                    trip_id
+                )
+                if not trip_row:
+                    raise HTTPException(status_code=404, detail="Trip not found")
+                trip_price = trip_row["price"]
+                total_amount = trip_price * len(seat_numbers)
 
+
+                wallet_row = None
+                if pay_with_wallet:
+                    wallet_row = await BookingRepo.get_wallet_for_update(user_id)
+                    if not wallet_row:
+                        raise HTTPException(status_code=400, detail="Wallet not found")
+                    if wallet_row["balance"] < total_amount:
+                        raise HTTPException(status_code=402, detail="Insufficient wallet balance")
+
+                booking_ids = []
+
+
+                for seat_no in seat_numbers:
+                    seat_row = await BookingRepo.select_seat_for_update(trip_id, seat_no)
+                    if not seat_row:
+                        await tr.rollback()
+                        raise HTTPException(status_code=404, detail=f"Seat {seat_no} not found")
+                    if seat_row["status"] != "available":
+                        await tr.rollback()
+                        raise HTTPException(status_code=409, detail=f"Seat {seat_no} already reserved")
+
+                    # insert booking
+                    booking_row = await BookingRepo.insert_booking(
+                        conn, user_id, trip_id, seat_row["id"],
+                        status="confirmed",
+                        payment_status="paid" if pay_with_wallet else "pending"
+                    )
+                    booking_ids.append(booking_row["id"])
+
+
+                    await BookingRepo.update_seat_booking(seat_row["id"], new_status="reserved")
+
+
+                if pay_with_wallet:
+                    new_balance = wallet_row["balance"] - total_amount
+                    await BookingRepo.update_wallet_balance(wallet_row["id"], new_balance)
+                    await BookingRepo.insert_transaction(
+                        user_id=user_id, wallet_id=wallet_row["id"],
+                        related_booking_id=booking_ids[0], amount=total_amount,
+                        ttype="debit", method="wallet", status="completed",
+                        balance_after=new_balance
+                    )
+                else:
+                    await BookingRepo.insert_transaction(
+                        user_id=user_id, wallet_id=None,
+                        related_booking_id=booking_ids[0], amount=total_amount,
+                        ttype="debit", method="card", status="pending",
+                        balance_after=(wallet_row["balance"] if wallet_row else 0)
+                    )
+
+                await tr.commit()
+
+                return booking_ids
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                await tr.rollback()
+                raise HTTPException(status_code=500, detail=str(e))
+
+
+
+    @staticmethod
+    async def cancel_booking(user_id: int, booking_id: int):
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            tr = conn.transaction()
+            await tr.start()
+            try:
+                # 1) fetch booking (with trip info)
+                booking = await fetchrow(
+                    "SELECT b.id, b.user_id, b.trip_id, b.seat_id, b.status, t.departure_time, t.price FROM bookings b JOIN trips t ON b.trip_id=t.id WHERE b.id=$1 FOR UPDATE",
+                    booking_id
+                )
+                if not booking:
+                    raise HTTPException(status_code=404, detail="Booking not found")
+                if booking["user_id"] != user_id:
+                    raise HTTPException(status_code=403, detail="Not owner of booking")
+                # cannot cancel after departure
+                import datetime
+                if booking["departure_time"] <= datetime.datetime.utcnow().astimezone(
+                        booking["departure_time"].tzinfo):
+                    raise HTTPException(status_code=400, detail="Cannot cancel after departure")
+
+                # update booking status and payment_status
+                await execute("UPDATE bookings SET status=$1, payment_status=$2 WHERE id=$3",
+                                   'cancelled', 'refunded', booking_id)
+                # free seat
+                await execute("UPDATE seats SET booking_id=NULL, status=$1 WHERE id=$2", 'available',
+                                   booking["seat_id"])
+
+                # refund wallet (simplified: find wallet and update)
+                wallet_row = await fetchrow("SELECT id, balance FROM wallets WHERE user_id=$1 FOR UPDATE",
+                                                 user_id)
+                if wallet_row:
+                    new_balance = wallet_row["balance"] + booking["price"]
+                    await execute("UPDATE wallets SET balance=$1 WHERE id=$2", new_balance,
+                                       wallet_row["id"])
+                    await execute(
+                        "INSERT INTO transactions(user_id, wallet_id, related_booking_id, amount, type, method, status, wallet_balance_after) "
+                        "VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+                        user_id, wallet_row["id"], booking_id, booking["price"], 'credit', 'wallet',
+                        'completed', new_balance
+                    )
+                await tr.commit()
+            except HTTPException:
+                raise
+            except Exception as e:
+                await tr.rollback()
+                raise HTTPException(status_code=500, detail=str(e))
 

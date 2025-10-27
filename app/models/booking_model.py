@@ -1,27 +1,26 @@
-import enum
-from sqlalchemy import Column, Integer, ForeignKey, DateTime, String, Enum, func
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, ForeignKey, Enum, DateTime
+from sqlalchemy.sql import func
 from app.db.database import Base
+from .base import TimestampMixin
+import enum
 
-class BookingStatus(enum.Enum):
-    booked = "booked"
-    canceled = "canceled"
+class BookingStatus(str, enum.Enum):
+    pending = "pending"
+    confirmed = "confirmed"
+    cancelled = "cancelled"
 
-class PaymentStatus(enum.Enum):
+class PaymentStatus(str, enum.Enum):
     pending = "pending"
     paid = "paid"
     refunded = "refunded"
 
-class Booking(Base):
+class Booking(Base, TimestampMixin):
     __tablename__ = "bookings"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    trip_id = Column(Integer, ForeignKey("trips.id", ondelete="CASCADE"), nullable=False)
-    status = Column(Enum(BookingStatus), default=BookingStatus.booked, nullable=False)
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    trip_id = Column(Integer, ForeignKey("trips.id"), nullable=False)
+    seat_id = Column(Integer, ForeignKey("seats.id"), nullable=False)
+    status = Column(Enum(BookingStatus), nullable=False)
     booking_time = Column(DateTime(timezone=True), server_default=func.now())
-    payment_status = Column(Enum(PaymentStatus), default=PaymentStatus.pending, nullable=False)
-
-    user = relationship("User", back_populates="bookings")
-    trip = relationship("Trip", back_populates="bookings")
-    transaction = relationship("Transaction", back_populates="booking")
+    payment_status = Column(Enum(PaymentStatus), nullable=False)

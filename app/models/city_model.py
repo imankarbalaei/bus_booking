@@ -1,19 +1,16 @@
 from sqlalchemy import Column, Integer, String, ForeignKey
 from app.db.database import Base
-from sqlalchemy.orm import relationship
+from .base import TimestampMixin
 
-class Province(Base):
+class Province(Base, TimestampMixin):
     __tablename__ = "provinces"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     province_name = Column(String, nullable=False)
-    cities = relationship("City", back_populates="province")
 
-class City(Base):
+class City(Base, TimestampMixin):
     __tablename__ = "cities"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     city_name = Column(String, nullable=False)
     province_id = Column(Integer, ForeignKey("provinces.id"))
-
-    province = relationship("Province", back_populates="cities")

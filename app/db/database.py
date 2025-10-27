@@ -1,15 +1,39 @@
-# app/db/database.py
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker, declarative_base
+import asyncpg
 from app.core.config import settings
 
-engine = create_async_engine(settings.DATABASE_URL, echo=True)
-async_session = sessionmaker(
-    engine, expire_on_commit=False, class_=AsyncSession
-)
+from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
 
-async def get_session() -> AsyncSession:
-    async with async_session() as session:
-        yield session
+pool: asyncpg.Pool | None = None
+
+async def get_pool() -> asyncpg.Pool:
+    global pool
+    if pool is None:
+        await connect_db()
+    return pool
+
+
+async def connect_db():
+    global pool
+    if pool is None:
+        pool = await asyncpg.create_pool(dsn=settings.DATABASE_URL, min_size=2, max_size=20)
+    return pool
+
+async def disconnect_db():
+    global pool
+    if pool:
+        await pool.close()
+        pool = None
+
+async def fetch(query: str, *args):
+    async with pool.acquire() as conn:
+        return await conn.fetch(query, *args)
+
+async def fetchrow(query: str, *args):
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(query, *args)
+
+async def execute(query: str, *args):
+    async with pool.acquire() as conn:
+        return await conn.execute(query, *args)

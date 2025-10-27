@@ -1,22 +1,20 @@
-import enum
-from sqlalchemy import Column, Integer, ForeignKey, DateTime, Numeric, Enum, func
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, ForeignKey, DateTime, Enum
 from app.db.database import Base
+from .base import TimestampMixin
+import enum
 
-class TripStatus(enum.Enum):
+class TripStatus(str, enum.Enum):
     scheduled = "scheduled"
+    ongoing = "ongoing"
     completed = "completed"
-    canceled = "canceled"
+    cancelled = "cancelled"
 
-class Trip(Base):
+class Trip(Base, TimestampMixin):
     __tablename__ = "trips"
 
-    id = Column(Integer, primary_key=True, index=True)
-    bus_id = Column(Integer, ForeignKey("buses.id", ondelete="CASCADE"), nullable=False)
+    id = Column(Integer, primary_key=True)
+    bus_id = Column(Integer, ForeignKey("buses.id"), nullable=False)
     departure_time = Column(DateTime(timezone=True), nullable=False)
     arrival_time = Column(DateTime(timezone=True), nullable=False)
     price = Column(Integer, nullable=False)
-    status = Column(Enum(TripStatus), default=TripStatus.scheduled, nullable=False)
-
-    bus = relationship("Bus", back_populates="trips")
-    bookings = relationship("Booking", back_populates="trip")
+    status = Column(Enum(TripStatus), nullable=False)

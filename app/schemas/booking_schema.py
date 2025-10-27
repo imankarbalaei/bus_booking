@@ -1,32 +1,18 @@
-from pydantic import BaseModel
-from enum import Enum
+from typing import Annotated,List
+from pydantic import BaseModel, Field
 
-
-class PaymentMethod(str, Enum):
-    wallet = "wallet"
-    gateway = "gateway"
-
-class BookingCreate(BaseModel):
+class BookingRequest(BaseModel):
     trip_id: int
-    payment_method: PaymentMethod
+    seat_numbers: Annotated[list[int], Field(min_length=1)]# user can request multiple seats
+    pay_with_wallet: bool = True  # if False -> simulate gateway
 
 class BookingResponse(BaseModel):
-    id: int
-    trip_id: int
-    user_id: int
-    status: str
-    payment_status: str
-    amount: int
+    booking_ids: List[int]
 
-    model_config = {
-        "from_attributes": True
-    }
+class CancelRequest(BaseModel):
+    booking_id: int
 
-class BookingCancelResponse(BaseModel):
-    id: int
-    trip_id: int
-    status: str
-    payment_status: str
-    refund_amount: int
-
-    model_config = {"from_attributes": True}
+class TripFilter(BaseModel):
+    origin_city_id: int | None = None
+    destination_city_id: int | None = None
+    sort: str | None = None  # "price_asc" or "price_desc"

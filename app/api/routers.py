@@ -1,9 +1,10 @@
 from fastapi import APIRouter
-from app.api.v1 import auth,booking
 
-API_VERSION_PREFIX = '/v1'
-api_router = APIRouter(prefix=f"{API_VERSION_PREFIX}")
+from app.api.v1 import auth_router, booking_router
 
-api_router.include_router(booking.router)
-api_router.include_router(auth.router)
-
+api_router = APIRouter()
+api_router.include_router(auth_router.router, prefix="/auth", tags=["Auth"])
+api_router.include_router(booking_router.router, prefix="/bookings", tags=["Bookings"])
+# api_router.include_router(bus_router.router, prefix="/buses", tags=["Buses"])
+# api_router.include_router(trip_router.router, prefix="/trips", tags=["Trips"])
+# api_router.include_router(admin_router.router, prefix="/admin", tags=["Admin"])

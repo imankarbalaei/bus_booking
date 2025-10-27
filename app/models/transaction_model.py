@@ -1,37 +1,30 @@
-import enum
-from sqlalchemy import Column, Integer, ForeignKey, Numeric, String, DateTime, Enum, func
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, ForeignKey, Enum
 from app.db.database import Base
+from .base import TimestampMixin
+import enum
 
-class TransactionType(enum.Enum):
-    topup = "topup"
-    direct_payment = "direct_payment"
-    refund = "refund"
+class TransactionType(str, enum.Enum):
+    debit = "debit"
+    credit = "credit"
 
-class PaymentMethod(enum.Enum):
+class PaymentMethod(str, enum.Enum):
+    card = "card"
     wallet = "wallet"
-    gateway = "gateway"
-    manual = "manual"
 
-class TransactionStatus(enum.Enum):
+class TransactionStatus(str, enum.Enum):
     pending = "pending"
-    success = "success"
+    completed = "completed"
     failed = "failed"
 
-class Transaction(Base):
+class Transaction(Base, TimestampMixin):
     __tablename__ = "transactions"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    wallet_id = Column(Integer, ForeignKey("wallets.id", ondelete="SET NULL"), nullable=True)
-    related_booking_id = Column(Integer, ForeignKey("bookings.id", ondelete="SET NULL"), nullable=True)
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    wallet_id = Column(Integer, ForeignKey("wallets.id", ondelete="SET NULL"))
+    related_booking_id = Column(Integer, ForeignKey("bookings.id", ondelete="SET NULL"))
     amount = Column(Integer, nullable=False)
     type = Column(Enum(TransactionType), nullable=False)
     method = Column(Enum(PaymentMethod), nullable=False)
-    status = Column(Enum(TransactionStatus), default=TransactionStatus.pending, nullable=False)
+    status = Column(Enum(TransactionStatus), nullable=False)
     wallet_balance_after = Column(Integer, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    user = relationship("User", back_populates="transactions")
-    wallet = relationship("Wallet", back_populates="transactions")
-    booking = relationship("Booking", back_populates="transaction")
