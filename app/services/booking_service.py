@@ -23,7 +23,7 @@ class BookingService:
 
 
                 trip_row = await conn.fetchrow(
-                    "SELECT price FROM trips WHERE id=$1 FOR UPDATE",
+                    "SELECT price FROM trips WHERE id=$1 AND departure_time > NOW() FOR UPDATE",
                     trip_id
                 )
                 if not trip_row:
