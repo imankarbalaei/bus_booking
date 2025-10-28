@@ -1,48 +1,33 @@
+version: "3.9"
+
 services:
-  web:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: bus_booking_web
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    ports:
-      - "8000:8000"
+  db:
+    image: postgres:16
+    container_name: bus_booking_db
+    restart: always
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://Iman:Iman123@db:5432/bus_booking
-      REDIS_URL: redis://redis:6379/0
-      JWT_SECRET: ${JWT_SECRET}
-    depends_on:
-      - db
-      - redis
-    volumes:
-      - .:/app
-    restart: unless-stopped
-
-  db:
-    image: postgres:15
-    container_name: bus_booking_db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: Iman
-      POSTGRES_PASSWORD: Iman123
-      POSTGRES_DB: bus_booking_db
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
-
-  redis:
-    image: redis:7-alpine
-    container_name: bus_booking_redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    command: ["redis-server", "--appendonly", "yes"]
     volumes:
-      - redis_data:/data
+      - postgres_data:/var/lib/postgresql/data
+
+  web:
+    build: .
+    container_name: bus_booking_web
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    env_file:
+      - .env
 
 volumes:
   postgres_data:
-  redis_data:
