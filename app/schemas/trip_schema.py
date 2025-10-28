@@ -55,6 +55,7 @@ class TripResponse(BaseModel):
     price: int
     status: TripStatus
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
