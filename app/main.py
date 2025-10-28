@@ -34,3 +34,5 @@ app.include_router(api_router, prefix="/v1")
 @app.get("/v1/me")
 async def read_me(current_user: dict = Depends(get_current_user)):
     return current_user
+
+print("test")
