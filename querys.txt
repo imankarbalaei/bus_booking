@@ -1,0 +1,37 @@
+-- 1. تعداد رزروهای موفق در هر ساعت
+SELECT
+    date_trunc('hour', booking_time) AS hour,
+    COUNT(*) AS successful_bookings
+FROM bookings
+WHERE status = 'confirmed'
+GROUP BY hour
+ORDER BY hour;
+
+
+-- 2. تعداد رزروها و درآمد هر اتوبوس در هر ماه
+SELECT
+    b.id AS bus_id,
+    date_trunc('month', t.departure_time) AS month,
+    COUNT(DISTINCT bk.id) AS total_bookings,
+    SUM(tr.amount) AS total_revenue
+FROM buses b
+JOIN trips t ON t.bus_id = b.id
+JOIN bookings bk ON bk.trip_id = t.id
+JOIN transactions tr ON tr.related_booking_id = bk.id
+WHERE bk.status = 'confirmed'
+GROUP BY b.id, month
+ORDER BY b.id, month;
+
+
+-- 3. پرکارترین اتوبوس بر اساس تعداد رزروهای موفق
+SELECT
+    b.id AS bus_id,
+    b.plate_number,
+    COUNT(bk.id) AS total_bookings
+FROM buses b
+JOIN trips t ON t.bus_id = b.id
+JOIN bookings bk ON bk.trip_id = t.id
+WHERE bk.status = 'confirmed'
+GROUP BY b.id, b.plate_number
+ORDER BY total_bookings DESC
+LIMIT 1;
