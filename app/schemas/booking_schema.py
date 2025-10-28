@@ -10,9 +10,14 @@ class BookingResponse(BaseModel):
     booking_ids: List[int]
 
 class CancelRequest(BaseModel):
-    booking_id: int
+    booking_ids: List[int]
 
 class TripFilter(BaseModel):
     origin_city_id: int | None = None
     destination_city_id: int | None = None
-    sort: str | None = None  # "price_asc" or "price_desc"
+    sort: str | None = None
+
+class CancelResponse(BaseModel):
+    status: str
+    wallet_balance: int
+    cancelled_bookings: List[int]
