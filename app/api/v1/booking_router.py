@@ -4,7 +4,7 @@ from app.schemas.booking_schema import BookingRequest, BookingResponse, CancelRe
 from app.services.booking_service import BookingService
 from app.core.dependencies import get_current_user
 
-router = APIRouter(tags=["bookings"])
+router = APIRouter()
 
 @router.post("/reserve", response_model=BookingResponse)
 async def reserve(req: BookingRequest, user = Depends(get_current_user)):

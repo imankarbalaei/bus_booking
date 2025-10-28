@@ -1,5 +1,5 @@
 from typing import List, Optional
-from app.db.database import get_pool
+from app.db.database import get_pool, fetchrow, fetch
 
 
 class TripsRepo:
@@ -56,3 +56,17 @@ class TripsRepo:
 
             rows = await conn.fetch(query, *params)
             return rows
+
+    @staticmethod
+    async def create_trip(bus_id: int, departure_time, arrival_time, price: int):
+        query = """
+            INSERT INTO trips (bus_id, departure_time, arrival_time, price, status)
+            VALUES ($1, $2, $3, $4, 'scheduled')
+            RETURNING id, bus_id, departure_time, arrival_time, price, status
+        """
+        return await fetchrow(query, bus_id, departure_time, arrival_time, price)
+
+    @staticmethod
+    async def get_all_trips():
+        return await fetch("SELECT * FROM trips ORDER BY departure_time DESC")
+

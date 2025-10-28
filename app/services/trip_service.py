@@ -1,7 +1,8 @@
 from typing import List
 from app.repositories.trips_repo import TripsRepo
-from app.schemas.trip_schema import TripResponse
-
+from app.schemas.trip_schema import TripResponse, TripCreate
+from app.repositories.admin_repo import AdminRepository
+from fastapi import HTTPException, status
 
 class TripsService:
     @staticmethod
@@ -24,7 +25,7 @@ class TripsService:
                     "destination": {"id": row["destination_id"], "name": row["destination_name"]},
                     "available_seats": []
                 }
-            if row["seat_status"] == "available":
+            if row["status"] == "available":
                 trips_dict[trip_id]["available_seats"].append(row["seat_number"])
 
         results = []
@@ -37,3 +38,34 @@ class TripsService:
             "count": len(results),
             "results": results
         }
+
+    @staticmethod
+    async def create_trip(data: TripCreate) -> TripResponse:
+
+        bus = await AdminRepository.get_bus_by_id(data.bus_id)
+        if not bus:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Bus with id={data.bus_id} not found"
+            )
+
+
+        if bus["route_id"] is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bus must be assigned to a route before scheduling trips"
+            )
+
+        trip = await TripsRepo.create_trip(
+            bus_id=data.bus_id,
+            departure_time=data.departure_time,
+            arrival_time=data.arrival_time,
+            price=data.price,
+        )
+
+        return TripResponse(**trip)
+
+    @staticmethod
+    async def list_trips():
+        trips = await TripsRepo.get_all_trips()
+        return [TripResponse(**t) for t in trips]

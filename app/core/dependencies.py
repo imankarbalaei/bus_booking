@@ -19,3 +19,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
             detail="User not found",
         )
     return dict(user)
+
+async def admin_required(current_user=Depends(get_current_user)):
+    if not current_user.get("is_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    return current_user
