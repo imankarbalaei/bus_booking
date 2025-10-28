@@ -1,4 +1,3 @@
-# app/api/v1/booking_router.py
 from fastapi import APIRouter, Depends, HTTPException
 from app.schemas.booking_schema import BookingRequest, BookingResponse, CancelRequest
 from app.services.booking_service import BookingService
