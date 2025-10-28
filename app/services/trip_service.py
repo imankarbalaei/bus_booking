@@ -10,28 +10,21 @@ class TripsService:
                                    destination_id: int = None,
                                    sort: str = "cheapest"):
         rows = await TripsRepo.get_available_trips(origin_id, destination_id, sort)
-        trips_dict = {}
-        for row in rows:
-            trip_id = row["trip_id"]
-            if trip_id not in trips_dict:
-                trips_dict[trip_id] = {
-                    "trip_id": trip_id,
-                    "bus_id": row["bus_id"],
-                    "price": row["price"],
-                    "status": row["status"],
-                    "departure_time": row["departure_time"].isoformat(),
-                    "arrival_time": row["arrival_time"].isoformat(),
-                    "origin": {"id": row["origin_id"], "name": row["origin_name"]},
-                    "destination": {"id": row["destination_id"], "name": row["destination_name"]},
-                    "available_seats": []
-                }
-            if row["status"] == "available":
-                trips_dict[trip_id]["available_seats"].append(row["seat_number"])
-
         results = []
-        for t in trips_dict.values():
-            t["available_seats_count"] = len(t["available_seats"])
-            results.append(t)
+
+        for row in rows:
+            results.append({
+                "trip_id": row["trip_id"],
+                "bus_id": row["bus_id"],
+                "price": row["price"],
+                "status": row["status"],
+                "departure_time": row["departure_time"].isoformat(),
+                "arrival_time": row["arrival_time"].isoformat(),
+                "origin": {"id": row["origin_id"], "name": row["origin_name"]},
+                "destination": {"id": row["destination_id"], "name": row["destination_name"]},
+                "available_seats_count": row["available_seats_count"],
+                "available_seats": row["available_seats"]  # این خودش یک لیست از seat_number هست
+            })
 
         return {
             "status": "success",
@@ -56,6 +49,7 @@ class TripsService:
                 detail="Bus must be assigned to a route before scheduling trips"
             )
 
+
         trip = await TripsRepo.create_trip(
             bus_id=data.bus_id,
             departure_time=data.departure_time,
@@ -64,8 +58,3 @@ class TripsService:
         )
 
         return TripResponse(**trip)
-
-    @staticmethod
-    async def list_trips():
-        trips = await TripsRepo.get_all_trips()
-        return [TripResponse(**t) for t in trips]
