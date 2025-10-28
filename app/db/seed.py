@@ -72,7 +72,7 @@ async def seed_trips(buses):
         arr_time = dep_time + fake.time_delta(end_datetime=dep_time)
         price = random.randint(50000, 500000)
         trip = await fetchrow("INSERT INTO trips(bus_id, departure_time, arrival_time, price, status) VALUES($1,$2,$3,$4,'scheduled') RETURNING id", bus["id"], dep_time, arr_time, price)
-        # ایجاد صندلی‌ها
+
         for seat_num in range(1, bus["capacity"]+1):
             await execute("INSERT INTO seats(trip_id, seat_number, status) VALUES($1,$2,'available')", trip["id"], seat_num)
         trips.append(trip["id"])
@@ -90,24 +90,23 @@ async def seed_bookings(users, trips, TARGET_BOOKINGS=100000):
         user_id = random.choice(users)
         trip_id = random.choice(trips)
 
-        # گرفتن صندلی‌های آزاد
+
         seats = await fetch("SELECT id FROM seats WHERE trip_id=$1 AND status='available'", trip_id)
         if not seats:
             continue
 
         seat = random.choice(seats)
 
-        # رزرو صندلی
+
         await execute("UPDATE seats SET status='reserved' WHERE id=$1", seat["id"])
 
-        # ایجاد Booking
+
         booking = await fetchrow(
             "INSERT INTO bookings(user_id, trip_id, seat_id, status, payment_status) "
             "VALUES($1,$2,$3,$4,$5) RETURNING id",
             user_id, trip_id, seat["id"], BookingStatus.confirmed.value, PaymentStatus.paid.value
         )
 
-        # ایجاد Transaction
         await execute(
             "INSERT INTO transactions(user_id, related_booking_id, amount, type, method, status, wallet_balance_after) "
             "VALUES($1,$2,$3,$4,$5,$6,(SELECT balance FROM wallets WHERE user_id=$1))",
