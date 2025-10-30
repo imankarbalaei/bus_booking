@@ -18,7 +18,24 @@ class AdminRepository:
 
     @staticmethod
     async def get_all_buses() -> List[dict]:
-        return await fetch("SELECT * FROM buses ORDER BY id DESC")
+        query = """
+            SELECT 
+                b.id AS bus_id,
+                b.plate_number,
+                b.capacity,
+                r.id AS route_id,
+                c1.id AS origin_city_id,
+                c1.city_name AS origin_city,
+                c2.id AS destination_city_id,
+                c2.city_name AS destination_city,
+                r.distance_km
+            FROM buses b
+            LEFT JOIN routes r ON b.route_id = r.id
+            LEFT JOIN cities c1 ON r.origin_city_id = c1.id
+            LEFT JOIN cities c2 ON r.destination_city_id = c2.id
+            ORDER BY b.id DESC;
+            """
+        return await fetch(query)
 
     @staticmethod
     async def get_bus_by_id(bus_id: int):
