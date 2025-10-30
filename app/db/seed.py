@@ -1,8 +1,9 @@
 import asyncio
 import random
 from faker import Faker
-from app.db.database import connect_db, disconnect_db, execute, fetchrow, fetch
+from app.db.database import connect_db, disconnect_db, pool, get_pool
 from app.core.security import hash_password
+from app.models.booking_model import BookingStatus, PaymentStatus
 
 fake = Faker("fa_IR")
 
@@ -10,121 +11,166 @@ NUM_USERS = 1000
 NUM_OPERATORS = 50
 NUM_BUSES = 100
 NUM_TRIPS = 1200
-TARGET_BOOKINGS = 100000
+NUM_ROUTES = 100
+TARGET_BOOKINGS = 100_000
+BATCH_SIZE = 5000
 
 provinces_data = {
     "تهران": ["تهران", "ری", "شمیرانات"],
     "اصفهان": ["اصفهان", "کاشان", "نجف‌آباد"],
     "فارس": ["شیراز", "مرودشت", "کازرون"],
-    "مشهد": ["مشهد", "نیشابور", "تربت جام"],
+    "خراسان رضوی": ["مشهد", "نیشابور", "تربت جام"],
     "قم": ["قم", "دلیجان"],
     "مازندران": ["ساری", "بابل", "قائم‌شهر"]
 }
 
+
 async def seed_provinces_and_cities():
     province_map = {}
-    for prov, cities in provinces_data.items():
-        res = await fetchrow("INSERT INTO provinces(province_name) VALUES($1) RETURNING id", prov)
-        province_map[prov] = res["id"]
-        for city in cities:
-            await execute("INSERT INTO cities(city_name, province_id) VALUES($1,$2)", city, res["id"])
+    province_values = [(prov,) for prov in provinces_data]
+    conn_pool = await get_pool()
+    async with conn_pool.acquire() as conn:
+        await conn.copy_records_to_table("provinces", records=province_values, columns=["province_name"])
+        rows = await conn.fetch("SELECT id, province_name FROM provinces")
+        for row in rows:
+            province_map[row["province_name"]] = row["id"]
+            city_values = [(city, row["id"]) for city in provinces_data[row["province_name"]]]
+            await conn.copy_records_to_table("cities", records=city_values, columns=["city_name","province_id"])
     return province_map
 
+
+async def seed_routes():
+    route_values = []
+    for _ in range(NUM_ROUTES):
+        origin = random.randint(1, 17)
+        dest = random.randint(1, 17)
+        while dest == origin:
+            dest = random.randint(1, 17)
+        distance = random.randint(50, 1000)
+        route_values.append((origin, dest, distance))
+    conn_pool = await get_pool()
+    async with conn_pool.acquire() as conn:
+        await conn.copy_records_to_table("routes", records=route_values,
+                                         columns=["origin_city_id","destination_city_id","distance_km"])
+        rows = await conn.fetch("SELECT id FROM routes")
+    return [r["id"] for r in rows]
+
+
 async def seed_users_and_wallets():
-    users = []
     hashed = hash_password("000123")
-    for i in range(NUM_USERS):
-        full_name = fake.name()
-        phone = fake.unique.numerify("09#########")
-        is_admin = True if i < NUM_OPERATORS else False
-        user = await fetchrow(
-            "INSERT INTO users(full_name, phone_number, hashed_password, is_active, is_admin) VALUES($1,$2,$3,true,$4) RETURNING id",
-            full_name, phone, hashed, is_admin
+    user_values = [(fake.name(), fake.unique.numerify("09#########"), hashed, True, i < NUM_OPERATORS)
+                   for i in range(NUM_USERS)]
+    conn_pool = await get_pool()
+    async with conn_pool.acquire() as conn:
+        await conn.copy_records_to_table("users", records=user_values,
+                                         columns=["full_name","phone_number","hashed_password","is_active","is_admin"])
+        users = await conn.fetch("SELECT id FROM users")
+        wallet_values = [(u["id"], random.randint(100_000, 500_000)) for u in users]
+        await conn.copy_records_to_table("wallets", records=wallet_values, columns=["user_id","balance"])
+
+    admin_hashed = hash_password("12345678")
+    conn_pool = await get_pool()
+    async with conn_pool.acquire() as conn:
+        admin = await conn.fetchrow(
+            "INSERT INTO users(full_name, phone_number, email, hashed_password, is_active, is_admin) "
+            "VALUES($1,$2,$3,$4,true,true) RETURNING id",
+            "Iman", "09121112211", "iman@example.com", admin_hashed
         )
-        await execute("INSERT INTO wallets(user_id, balance) VALUES($1,$2)", user["id"], random.randint(100000,500000))
-        users.append(user["id"])
-    return users
+        await conn.execute("INSERT INTO wallets(user_id, balance) VALUES($1,$2)", admin["id"], 100_000)
+    return [u["id"] for u in users] + [admin["id"]]
+
 
 async def seed_operators(users):
-    ops = []
-    for user_id in users[:NUM_OPERATORS]:
-        company_name = fake.company()
-        license_number = fake.unique.bothify("??####")
-        await execute("INSERT INTO operators(user_id, company_name, license_number) VALUES($1,$2,$3)", user_id, company_name, license_number)
-        ops.append(user_id)
-    return ops
+    operator_values = [(user_id, fake.company(), fake.unique.bothify("??####")) for user_id in users[:NUM_OPERATORS]]
+      # استفاده از connection برای copy
+    conn_pool = await get_pool()
+    await conn_pool.acquire().__aenter__()
+    async with conn_pool.acquire() as conn:
+        await conn.copy_records_to_table("operators", records=operator_values,
+                                         columns=["user_id","company_name","license_number"])
+    return [u[0] for u in operator_values]
 
-async def seed_buses(operators):
-    buses = []
-    for _ in range(NUM_BUSES):
-        op_id = random.choice(operators)
-        plate = fake.unique.bothify("??####??")
-        capacity = random.randint(100, 120)
-        bus = await fetchrow("INSERT INTO buses(operator_id, plate_number, capacity) VALUES($1,$2,$3) RETURNING id", op_id, plate, capacity)
-        buses.append({"id": bus["id"], "capacity": capacity})
-    return buses
+
+async def seed_buses(operators, routes):
+    bus_values = [(random.choice(operators), fake.unique.bothify("??####??"), random.randint(100,120), random.choice(routes))
+                  for _ in range(NUM_BUSES)]
+    conn_pool = await get_pool()
+    async with conn_pool.acquire() as conn:
+        await conn.copy_records_to_table("buses", records=bus_values,
+                                         columns=["operator_id","plate_number","capacity","route_id"])
+        rows = await conn.fetch("SELECT id, capacity FROM buses")
+    return rows
+
 
 async def seed_trips(buses):
-    trips = []
+    trip_values = []
+    seat_values = []
     for _ in range(NUM_TRIPS):
         bus = random.choice(buses)
         dep_time = fake.future_datetime(end_date="+30d")
         arr_time = dep_time + fake.time_delta(end_datetime=dep_time)
-        price = random.randint(50000, 500000)
-        trip = await fetchrow("INSERT INTO trips(bus_id, departure_time, arrival_time, price, status) VALUES($1,$2,$3,$4,'scheduled') RETURNING id", bus["id"], dep_time, arr_time, price)
+        price = random.randint(50_000, 500_000)
+        trip_values.append((bus["id"], dep_time, arr_time, price, 'scheduled', bus["capacity"]))
+    conn_pool = await get_pool()
+    async with conn_pool.acquire() as conn:
+        await conn.copy_records_to_table("trips", records=[t[:5] for t in trip_values],
+                                         columns=["bus_id","departure_time","arrival_time","price","status"])
+        trips = await conn.fetch("SELECT id, bus_id FROM trips")
 
-        for seat_num in range(1, bus["capacity"]+1):
-            await execute("INSERT INTO seats(trip_id, seat_number, status) VALUES($1,$2,'available')", trip["id"], seat_num)
-        trips.append(trip["id"])
+        for trip, (_, _, _, _, _, capacity) in zip(trips, trip_values):
+            seat_values.extend([(trip["id"], i+1, 'available') for i in range(capacity)])
+        await conn.copy_records_to_table("seats", records=seat_values, columns=["trip_id","seat_number","status"])
     return trips
 
-from app.models.booking_model import BookingStatus, PaymentStatus
-from app.models.transaction_model import TransactionType, PaymentMethod, TransactionStatus
-import random
-from app.db.database import fetch, fetchrow, execute
 
-async def seed_bookings(users, trips, TARGET_BOOKINGS=100000):
+async def seed_bookings(users, trips, TARGET_BOOKINGS=100_000):
+    trip_seats_map = {}
+    conn_pool = await get_pool()
+    async with conn_pool.acquire() as conn:
+        seats = await conn.fetch("SELECT id, trip_id FROM seats WHERE status='available'")
+        for seat in seats:
+            trip_seats_map.setdefault(seat["trip_id"], []).append(seat["id"])
+
     bookings_created = 0
-
+    batch = []
+    seat_updates = []
     while bookings_created < TARGET_BOOKINGS:
         user_id = random.choice(users)
-        trip_id = random.choice(trips)
-
-
-        seats = await fetch("SELECT id FROM seats WHERE trip_id=$1 AND status='available'", trip_id)
-        if not seats:
+        trip_id = random.choice(list(trip_seats_map.keys()))
+        if not trip_seats_map[trip_id]:
             continue
-
-        seat = random.choice(seats)
-
-
-        await execute("UPDATE seats SET status='reserved' WHERE id=$1", seat["id"])
-
-
-        booking = await fetchrow(
-            "INSERT INTO bookings(user_id, trip_id, seat_id, status, payment_status) "
-            "VALUES($1,$2,$3,$4,$5) RETURNING id",
-            user_id, trip_id, seat["id"], BookingStatus.confirmed.value, PaymentStatus.paid.value
-        )
-
-        await execute(
-            "INSERT INTO transactions(user_id, related_booking_id, amount, type, method, status, wallet_balance_after) "
-            "VALUES($1,$2,$3,$4,$5,$6,(SELECT balance FROM wallets WHERE user_id=$1))",
-            user_id, booking["id"], random.randint(50000, 500000),
-            TransactionType.debit.value, PaymentMethod.wallet.value, TransactionStatus.completed.value
-        )
-
+        seat_id = trip_seats_map[trip_id].pop()
+        batch.append((user_id, trip_id, seat_id, BookingStatus.confirmed.value, PaymentStatus.paid.value))
+        seat_updates.append(seat_id)
         bookings_created += 1
-        if bookings_created % 1000 == 0:
+
+        if len(batch) >= BATCH_SIZE:
+            conn_pool = await get_pool()
+            async with conn_pool.acquire() as conn:
+                await conn.copy_records_to_table("bookings", records=batch,
+                                                 columns=["user_id","trip_id","seat_id","status","payment_status"])
+                await conn.execute("UPDATE seats SET status='reserved' WHERE id = ANY($1)", seat_updates)
+            batch.clear()
+            seat_updates.clear()
             print(f"{bookings_created} bookings created...")
+
+
+    if batch:
+        conn_pool = await get_pool()
+        async with conn_pool.acquire() as conn:
+            await conn.copy_records_to_table("bookings", records=batch,
+                                             columns=["user_id","trip_id","seat_id","status","payment_status"])
+            await conn.execute("UPDATE seats SET status='reserved' WHERE id = ANY($1)", seat_updates)
+    print("✅ Booking seeding completed.")
 
 
 async def main():
     await connect_db()
     await seed_provinces_and_cities()
+    routes = await seed_routes()
     users = await seed_users_and_wallets()
     operators = await seed_operators(users)
-    buses = await seed_buses(operators)
+    buses = await seed_buses(operators, routes)
     trips = await seed_trips(buses)
     await seed_bookings(users, trips)
     await disconnect_db()

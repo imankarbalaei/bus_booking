@@ -28,6 +28,4 @@ async def create_trip(
     return await TripsService.create_trip(trip_data)
 
 
-@router.get("/list_trips", response_model=list[TripResponse])
-async def list_trips(admin_user=Depends(admin_required)):
-    return await TripsService.list_trips()
+
