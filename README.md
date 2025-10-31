@@ -12,7 +12,8 @@
 ## clone 
 
 ```bash
-https://github.com/imankarbalaei/bus_booking.git
+git clone https://github.com/imankarbalaei/bus_booking.git
+
 ```
 **ساخت و اجرای کانتینرها**
 
